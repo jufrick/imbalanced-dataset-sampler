@@ -23,6 +23,9 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
         num_samples: int = None,
         callback_get_label: Callable = None,
     ):
+        # define max number of categories
+        self.max_categories = 2 ** 24
+        
         # if indices is not provided, all elements in the dataset will be considered
         self.indices = list(range(len(dataset))) if indices is None else indices
 
@@ -63,7 +66,21 @@ class ImbalancedDatasetSampler(torch.utils.data.sampler.Sampler):
             raise NotImplementedError
 
     def __iter__(self):
-        return (self.indices[i] for i in torch.multinomial(self.weights, self.num_samples, replacement=True))
+        if len(self.weights) > self.max_categories:
+            indices = []
+            num_chunks = (len(self.weights) + self.max_categories - 1) // self.max_categories
+            chunk_size = (len(self.weights) + num_chunks - 1) // num_chunks
+    
+            for i in range(num_chunks):
+                start_idx = i * chunk_size
+                end_idx = min((i + 1) * chunk_size, len(self.weights))
+                chunk_weights = self.weights[start_idx:end_idx]
+                chunk_indices = torch.multinomial(chunk_weights, self.num_samples // num_chunks, replacement=True)
+                indices.extend(self.indices[start_idx + idx] for idx in chunk_indices)
+    
+            return iter(indices)
+        else:
+            return (self.indices[i] for i in torch.multinomial(self.weights, self.num_samples, replacement=True))
 
     def __len__(self):
         return self.num_samples
